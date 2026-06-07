@@ -58,9 +58,14 @@ public class IngestionProducer {
         try {
             String json = objectMapper.writeValueAsString(
                     Map.of("docId", docId, "error", errorMessage, "timestamp", System.currentTimeMillis()));
-            kafkaTemplate.send(KafkaTopics.INGESTION_DLQ, docId, json);
+            kafkaTemplate.send(KafkaTopics.INGESTION_DLQ, docId, json)
+                    .get(5, java.util.concurrent.TimeUnit.SECONDS);
         } catch (Exception e) {
             log.error("Failed to send to DLQ for doc={}", docId, e);
         }
+    }
+
+    public void flush() {
+        kafkaTemplate.flush();
     }
 }
