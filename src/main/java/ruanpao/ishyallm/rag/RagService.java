@@ -5,14 +5,16 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.embedding.EmbeddingModel;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
+import ruanpao.ishyallm.common.util.VectorUtils;
+import ruanpao.ishyallm.retrieval.ElasticsearchRepository;
 import ruanpao.ishyallm.retrieval.RrfService;
 import ruanpao.ishyallm.retrieval.VectorRepository;
 
-import ruanpao.ishyallm.common.util.VectorUtils;
 import java.util.List;
 
 @Service
@@ -24,6 +26,7 @@ public class RagService {
     private final EmbeddingModel embeddingModel;
     private final VectorRepository vectorRepo;
     private final RrfService rrf;
+    private ElasticsearchRepository esRepo;
 
     public RagService(QueryRewriteService queryRewrite,
                       StreamingChatModel chatModel,
@@ -37,6 +40,11 @@ public class RagService {
         this.rrf = rrf;
     }
 
+    @Autowired(required = false)
+    public void setEsRepo(ElasticsearchRepository esRepo) {
+        this.esRepo = esRepo;
+    }
+
     public Flux<String> ask(String userQuery, String historyContext, String department) {
         String rewritten = queryRewrite.rewrite(userQuery, historyContext);
         String contextChunks = "";
@@ -46,8 +54,10 @@ public class RagService {
                 var queryEmbedding = embeddingModel.embed(rewritten).content();
                 var queryVec = VectorUtils.toDoubleList(queryEmbedding.vectorAsList());
 
+                // 双路召回：PGVector 语义 + ES BM25
                 var vr = vectorRepo.searchByDepartment(queryVec, 20, department);
-                var ranked = rrf.merge(vr, List.of(), 8);
+                var er = esRepo != null ? esRepo.search(rewritten, 20) : List.<ElasticsearchRepository.SearchResult>of();
+                var ranked = rrf.merge(vr, er, 8);
 
                 var sb = new StringBuilder();
                 for (int i = 0; i < ranked.size(); i++) {
@@ -99,5 +109,4 @@ public class RagService {
                 + "问题：" + query + "\n\n"
                 + "请用中文回答，并在相关位置标注引用来源。";
     }
-
 }
