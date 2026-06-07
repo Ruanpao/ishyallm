@@ -49,8 +49,8 @@ class IngestionEndToEndTest {
         producer = new IngestionProducer(bs);
 
         EmbeddingService stub = text -> List.of(0.1, 0.2, 0.3, 0.4, 0.5);
-        consumer = new IngestionConsumer(stub, producer);
-        consumer.start(bs);
+        consumer = new IngestionConsumer(stub, producer, new com.fasterxml.jackson.databind.ObjectMapper(), bs);
+        consumer.start();
     }
 
     @Test

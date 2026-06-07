@@ -1,6 +1,8 @@
 package ruanpao.ishyallm.ingestion.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -22,37 +24,46 @@ public class IngestionConsumer {
     private final EmbeddingService embeddingService;
     private final IngestionProducer producer;
     private final ObjectMapper objectMapper;
+    private final String bootstrapServers;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread consumerThread;
 
     public IngestionConsumer(EmbeddingService embeddingService, IngestionProducer producer,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper, String bootstrapServers) {
         this.embeddingService = embeddingService;
         this.producer = producer;
         this.objectMapper = objectMapper;
+        this.bootstrapServers = bootstrapServers;
     }
 
-    // For test use
     IngestionConsumer(EmbeddingService embeddingService, IngestionProducer producer) {
-        this(embeddingService, producer, new ObjectMapper());
+        this(embeddingService, producer, new ObjectMapper(), "localhost:9092");
     }
 
-    public void start(String bootstrapServers) {
+    @PostConstruct
+    public void start() {
+        if (bootstrapServers == null || bootstrapServers.isBlank()) {
+            log.warn("Kafka bootstrap servers not configured, consumer not started");
+            return;
+        }
         if (running.compareAndSet(false, true)) {
-            consumerThread = new Thread(() -> run(bootstrapServers), "ingestion-consumer");
+            consumerThread = new Thread(() -> run(), "ingestion-consumer");
             consumerThread.setDaemon(true);
             consumerThread.start();
+            log.info("Ingestion consumer started, connecting to {}", bootstrapServers);
         }
     }
 
+    @PreDestroy
     public void stop() {
         running.set(false);
         if (consumerThread != null) {
             consumerThread.interrupt();
         }
+        log.info("Ingestion consumer stopped");
     }
 
-    private void run(String bootstrapServers) {
+    private void run() {
         var props = Map.<String, Object>of(
                 ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers,
                 ConsumerConfig.GROUP_ID_CONFIG, "ingestion-group",
