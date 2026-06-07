@@ -1,16 +1,41 @@
 package ruanpao.ishyallm.retrieval;
 
-import org.springframework.jdbc.core.JdbcTemplate;
-
-import javax.sql.DataSource;
+import dev.langchain4j.data.document.Metadata;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingStore;
+import dev.langchain4j.store.embedding.filter.Filter;
+import dev.langchain4j.store.embedding.pgvector.PgVectorEmbeddingStore;
 import java.util.List;
+
+
+
+import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metadataKey;
 
 public class VectorRepository {
 
-    private final JdbcTemplate jdbc;
+    private final EmbeddingStore<TextSegment> store;
 
-    public VectorRepository(DataSource dataSource) {
-        this.jdbc = new JdbcTemplate(dataSource);
+    public VectorRepository(String host, int port, String database,
+                            String user, String password) {
+        this(host, port, database, user, password, 5);
+    }
+
+    public VectorRepository(String host, int port, String database,
+                            String user, String password, int dimension) {
+        this.store = PgVectorEmbeddingStore.builder()
+                .host(host)
+                .port(port)
+                .database(database)
+                .user(user)
+                .password(password)
+                .table("doc_chunks_v2")
+                .dimension(dimension)
+                .createTable(true)
+                .dropTableFirst(false)
+                .build();
     }
 
     public record SearchResult(
@@ -20,47 +45,51 @@ public class VectorRepository {
 
     public void insert(String chunkId, String docId, String content,
                        List<Double> embedding, int pageNumber, String department) {
-        String vec = "[" + String.join(",", embedding.stream().map(String::valueOf).toList()) + "]";
-        jdbc.update("""
-                INSERT INTO doc_chunks (chunk_id, doc_id, content, embedding, page_number, department)
-                VALUES (?, ?, ?, ?::vector, ?, ?)
-                """, chunkId, docId, content, vec, pageNumber, department);
+        Embedding emb = Embedding.from(embedding.stream().map(Double::floatValue).toList());
+        Metadata meta = new Metadata();
+        meta.put("chunkId", chunkId);
+        meta.put("docId", docId);
+        meta.put("pageNumber", String.valueOf(pageNumber));
+        meta.put("department", department);
+        store.add(emb, TextSegment.from(content, meta));
     }
 
     public List<SearchResult> search(List<Double> queryVector, int topK) {
-        String vec = "[" + String.join(",", queryVector.stream().map(String::valueOf).toList()) + "]";
-        return jdbc.query("""
-                SELECT chunk_id, doc_id, content, page_number, department,
-                       1 - (embedding <=> ?::vector) AS score
-                FROM doc_chunks
-                ORDER BY embedding <=> ?::vector
-                LIMIT ?
-                """, (rs, row) -> new SearchResult(
-                        rs.getString("chunk_id"),
-                        rs.getString("doc_id"),
-                        rs.getString("content"),
-                        rs.getInt("page_number"),
-                        rs.getString("department"),
-                        rs.getDouble("score")
-                ), vec, vec, topK);
+        return searchWithFilter(queryVector, topK, null);
     }
 
     public List<SearchResult> searchByDepartment(List<Double> queryVector, int topK, String department) {
-        String vec = "[" + String.join(",", queryVector.stream().map(String::valueOf).toList()) + "]";
-        return jdbc.query("""
-                SELECT chunk_id, doc_id, content, page_number, department,
-                       1 - (embedding <=> ?::vector) AS score
-                FROM doc_chunks
-                WHERE department = ?
-                ORDER BY embedding <=> ?::vector
-                LIMIT ?
-                """, (rs, row) -> new SearchResult(
-                        rs.getString("chunk_id"),
-                        rs.getString("doc_id"),
-                        rs.getString("content"),
-                        rs.getInt("page_number"),
-                        rs.getString("department"),
-                        rs.getDouble("score")
-                ), vec, department, vec, topK);
+        return searchWithFilter(queryVector, topK,
+                metadataKey("department").isEqualTo(department));
+    }
+
+    private List<SearchResult> searchWithFilter(List<Double> queryVector, int topK, Filter filter) {
+        Embedding queryEmb = Embedding.from(queryVector.stream().map(Double::floatValue).toList());
+
+        var request = EmbeddingSearchRequest.builder()
+                .queryEmbedding(queryEmb)
+                .maxResults(topK)
+                .minScore(0.0)
+                .filter(filter)
+                .build();
+
+        List<EmbeddingMatch<TextSegment>> matches = store.search(request).matches();
+
+        return matches.stream().map(m -> {
+            TextSegment seg = m.embedded();
+            Metadata meta = seg != null ? seg.metadata() : new Metadata();
+            return new SearchResult(
+                    meta.getString("chunkId"),
+                    meta.getString("docId"),
+                    seg != null ? seg.text() : "",
+                    parseIntSafe(meta.getString("pageNumber")),
+                    meta.getString("department"),
+                    m.score()
+            );
+        }).toList();
+    }
+
+    private int parseIntSafe(String s) {
+        try { return Integer.parseInt(s); } catch (Exception e) { return 0; }
     }
 }

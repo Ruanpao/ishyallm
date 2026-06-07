@@ -12,6 +12,7 @@ import reactor.core.publisher.Sinks;
 import ruanpao.ishyallm.retrieval.RrfService;
 import ruanpao.ishyallm.retrieval.VectorRepository;
 
+import ruanpao.ishyallm.common.util.VectorUtils;
 import java.util.List;
 
 @Service
@@ -43,7 +44,7 @@ public class RagService {
         if (vectorRepo != null && rrf != null && embeddingModel != null) {
             try {
                 var queryEmbedding = embeddingModel.embed(rewritten).content();
-                var queryVec = toDoubleList(queryEmbedding.vectorAsList());
+                var queryVec = VectorUtils.toDoubleList(queryEmbedding.vectorAsList());
 
                 var vr = vectorRepo.searchByDepartment(queryVec, 20, department);
                 var ranked = rrf.merge(vr, List.of(), 8);
@@ -99,7 +100,4 @@ public class RagService {
                 + "请用中文回答，并在相关位置标注引用来源。";
     }
 
-    public static List<Double> toDoubleList(List<Float> floats) {
-        return floats.stream().map(Float::doubleValue).toList();
-    }
 }

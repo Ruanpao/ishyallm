@@ -11,6 +11,7 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ruanpao.ishyallm.common.constant.KafkaTopics;
+import ruanpao.ishyallm.common.util.VectorUtils;
 
 import java.time.Duration;
 import java.util.List;
@@ -100,13 +101,9 @@ public class IngestionConsumer {
             var embedding = response.content();
             var embedEvent = new EmbedDoneEvent(
                     chunk.chunkId(), event.docId(), chunk.content(),
-                    toDoubleList(embedding.vectorAsList()), chunk.pageNumber(), event.department());
+                    VectorUtils.toDoubleList(embedding.vectorAsList()), chunk.pageNumber(), event.department());
             producer.sendEmbedDone(embedEvent);
         }
         log.info("Processed doc={} with {} chunks", event.docId(), event.chunks().size());
-    }
-
-    private static List<Double> toDoubleList(List<Float> floats) {
-        return floats.stream().map(Float::doubleValue).toList();
     }
 }
