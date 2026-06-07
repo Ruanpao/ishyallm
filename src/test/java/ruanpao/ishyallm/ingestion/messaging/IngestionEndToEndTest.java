@@ -1,6 +1,9 @@
 package ruanpao.ishyallm.ingestion.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.output.Response;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -14,7 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.test.EmbeddedKafkaKraftBroker;
-import ruanpao.ishyallm.ingestion.service.EmbeddingService;
+
 
 import java.time.Duration;
 import java.util.List;
@@ -48,7 +51,19 @@ class IngestionEndToEndTest {
         bs = embeddedKafka.getBrokersAsString();
         producer = new IngestionProducer(bs);
 
-        EmbeddingService stub = text -> List.of(0.1, 0.2, 0.3, 0.4, 0.5);
+        EmbeddingModel stub = new EmbeddingModel() {
+            @Override
+            public dev.langchain4j.model.output.Response<dev.langchain4j.data.embedding.Embedding> embed(String text) {
+                return dev.langchain4j.model.output.Response.from(
+                        new Embedding(new float[]{0.1f, 0.2f, 0.3f, 0.4f, 0.5f}));
+            }
+
+            @Override
+            public dev.langchain4j.model.output.Response<java.util.List<dev.langchain4j.data.embedding.Embedding>> embedAll(
+                    java.util.List<dev.langchain4j.data.segment.TextSegment> segments) {
+                return null;
+            }
+        };
         consumer = new IngestionConsumer(stub, producer, new com.fasterxml.jackson.databind.ObjectMapper(), bs);
         consumer.start();
     }

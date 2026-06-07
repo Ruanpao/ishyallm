@@ -1,25 +1,38 @@
 package ruanpao.ishyallm.rag;
 
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
-import ruanpao.ishyallm.retrieval.ElasticsearchRepository;
+import reactor.core.publisher.Sinks;
 import ruanpao.ishyallm.retrieval.RrfService;
 import ruanpao.ishyallm.retrieval.VectorRepository;
 
+import java.util.List;
+
+@Service
+@ConditionalOnBean(StreamingChatModel.class)
 public class RagService {
 
     private final QueryRewriteService queryRewrite;
-    private final ChatLanguageModel chatModel;
+    private final StreamingChatModel chatModel;
+    private final EmbeddingModel embeddingModel;
     private final VectorRepository vectorRepo;
-    private final ElasticsearchRepository esRepo;
     private final RrfService rrf;
 
-    public RagService(QueryRewriteService queryRewrite, ChatLanguageModel chatModel,
-                      VectorRepository vectorRepo, ElasticsearchRepository esRepo,
+    public RagService(QueryRewriteService queryRewrite,
+                      StreamingChatModel chatModel,
+                      EmbeddingModel embeddingModel,
+                      VectorRepository vectorRepo,
                       RrfService rrf) {
         this.queryRewrite = queryRewrite;
         this.chatModel = chatModel;
+        this.embeddingModel = embeddingModel;
         this.vectorRepo = vectorRepo;
-        this.esRepo = esRepo;
         this.rrf = rrf;
     }
 
@@ -27,20 +40,18 @@ public class RagService {
         String rewritten = queryRewrite.rewrite(userQuery, historyContext);
         String contextChunks = "";
 
-        if (vectorRepo != null && esRepo != null && rrf != null) {
+        if (vectorRepo != null && rrf != null && embeddingModel != null) {
             try {
-                // 暂用简化检索：仅向量检索（ES 需要独立容器连接）
-                var vr = vectorRepo.searchByDepartment(
-                        dummyVector(), 8, department);
-                var er = esRepo != null ? esRepo.search(rewritten, 8)
-                        : java.util.Collections.<ElasticsearchRepository.SearchResult>emptyList();
-                var ranked = rrf.merge(vr, er, 8);
+                var queryEmbedding = embeddingModel.embed(rewritten).content();
+                var queryVec = toDoubleList(queryEmbedding.vectorAsList());
+
+                var vr = vectorRepo.searchByDepartment(queryVec, 20, department);
+                var ranked = rrf.merge(vr, List.of(), 8);
 
                 var sb = new StringBuilder();
                 for (int i = 0; i < ranked.size(); i++) {
-                    var r = ranked.get(i);
                     sb.append("[").append(i + 1).append("] ")
-                            .append(r.content()).append("\n");
+                            .append(ranked.get(i).content()).append("\n");
                 }
                 contextChunks = sb.toString();
             } catch (Exception e) {
@@ -49,7 +60,33 @@ public class RagService {
         }
 
         String prompt = buildPrompt(rewritten, contextChunks);
-        return chatModel.chat(prompt);
+        return streamResponse(prompt);
+    }
+
+    private Flux<String> streamResponse(String prompt) {
+        Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
+        var request = ChatRequest.builder()
+                .messages(List.of(UserMessage.userMessage(prompt)))
+                .build();
+
+        chatModel.chat(request, new StreamingChatResponseHandler() {
+            @Override
+            public void onPartialResponse(String token) {
+                if (token != null) sink.tryEmitNext(token);
+            }
+
+            @Override
+            public void onCompleteResponse(dev.langchain4j.model.chat.response.ChatResponse response) {
+                sink.tryEmitComplete();
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                sink.tryEmitError(error);
+            }
+        });
+
+        return sink.asFlux();
     }
 
     private String buildPrompt(String query, String context) {
@@ -62,7 +99,7 @@ public class RagService {
                 + "请用中文回答，并在相关位置标注引用来源。";
     }
 
-    private java.util.List<Double> dummyVector() {
-        return java.util.List.of(0.1, 0.1, 0.1, 0.1, 0.1);
+    public static List<Double> toDoubleList(List<Float> floats) {
+        return floats.stream().map(Float::doubleValue).toList();
     }
 }

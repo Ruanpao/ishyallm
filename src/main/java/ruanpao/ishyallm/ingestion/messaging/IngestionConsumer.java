@@ -1,6 +1,7 @@
 package ruanpao.ishyallm.ingestion.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.model.embedding.EmbeddingModel;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -10,7 +11,6 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ruanpao.ishyallm.common.constant.KafkaTopics;
-import ruanpao.ishyallm.ingestion.service.EmbeddingService;
 
 import java.time.Duration;
 import java.util.List;
@@ -21,23 +21,23 @@ public class IngestionConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(IngestionConsumer.class);
 
-    private final EmbeddingService embeddingService;
+    private final EmbeddingModel embeddingModel;
     private final IngestionProducer producer;
     private final ObjectMapper objectMapper;
     private final String bootstrapServers;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread consumerThread;
 
-    public IngestionConsumer(EmbeddingService embeddingService, IngestionProducer producer,
+    public IngestionConsumer(EmbeddingModel embeddingModel, IngestionProducer producer,
                              ObjectMapper objectMapper, String bootstrapServers) {
-        this.embeddingService = embeddingService;
+        this.embeddingModel = embeddingModel;
         this.producer = producer;
         this.objectMapper = objectMapper;
         this.bootstrapServers = bootstrapServers;
     }
 
-    IngestionConsumer(EmbeddingService embeddingService, IngestionProducer producer) {
-        this(embeddingService, producer, new ObjectMapper(), "localhost:9092");
+    IngestionConsumer(EmbeddingModel embeddingModel, IngestionProducer producer) {
+        this(embeddingModel, producer, new ObjectMapper(), "localhost:9092");
     }
 
     @PostConstruct
@@ -96,12 +96,17 @@ public class IngestionConsumer {
 
     private void processEvent(ParseDoneEvent event) {
         for (ChunkData chunk : event.chunks()) {
-            List<Double> embedding = embeddingService.embed(chunk.content());
+            var response = embeddingModel.embed(chunk.content());
+            var embedding = response.content();
             var embedEvent = new EmbedDoneEvent(
                     chunk.chunkId(), event.docId(), chunk.content(),
-                    embedding, chunk.pageNumber(), event.department());
+                    toDoubleList(embedding.vectorAsList()), chunk.pageNumber(), event.department());
             producer.sendEmbedDone(embedEvent);
         }
         log.info("Processed doc={} with {} chunks", event.docId(), event.chunks().size());
+    }
+
+    private static List<Double> toDoubleList(List<Float> floats) {
+        return floats.stream().map(Float::doubleValue).toList();
     }
 }
