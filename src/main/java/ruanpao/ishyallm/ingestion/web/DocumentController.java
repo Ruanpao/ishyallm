@@ -53,7 +53,21 @@ public class DocumentController {
                     String filename = part instanceof FilePart ? ((FilePart) part).filename() : "unknown.pdf";
                     String docId = "DOC-" + UUID.randomUUID().toString().substring(0, 8);
 
-                    return part.content()
+                    // 简单去重：按文件名
+                    return documentRepository.existsByTitle(filename)
+                            .flatMap(exists -> {
+                                if (exists) {
+                                    return Mono.just(ResponseEntity.status(409)
+                                            .body((Object) "Document already exists: " + filename));
+                                }
+                                return processUpload(part, dept, filename, docId);
+                            });
+                });
+    }
+
+    private Mono<ResponseEntity<Object>> processUpload(Part part, String dept,
+                                                        String filename, String docId) {
+        return part.content()
                             .reduce(new ByteArrayOutputStream(), (baos, buf) -> {
                                 byte[] bytes = new byte[buf.readableByteCount()];
                                 buf.read(bytes);
@@ -83,7 +97,6 @@ public class DocumentController {
                                             .body((Object) "Failed to parse PDF: " + e.getMessage()));
                                 }
                             });
-                });
     }
 
     @GetMapping
