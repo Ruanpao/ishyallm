@@ -86,7 +86,8 @@ class JwtAuthFilterTest {
         webTestClient.get()
                 .uri("/api/chat/history")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header("X-Doctor-Id", "1")
                 .exchange()
-                .expectStatus().isEqualTo(404);
+                .expectStatus().isEqualTo(200);
     }
 }
