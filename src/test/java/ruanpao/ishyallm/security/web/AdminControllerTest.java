@@ -14,6 +14,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 import ruanpao.ishyallm.common.domain.UserRole;
 import ruanpao.ishyallm.security.jwt.JwtTokenProvider;
 
@@ -22,7 +23,8 @@ import ruanpao.ishyallm.security.jwt.JwtTokenProvider;
 class AdminControllerTest {
 
     @Container
-    static PostgreSQLContainer<?> pg = new PostgreSQLContainer<>("postgres:16-alpine")
+    static PostgreSQLContainer<?> pg = new PostgreSQLContainer<>(
+            DockerImageName.parse("pgvector/pgvector:0.8.2-pg18-trixie"))
             .withDatabaseName("test").withUsername("test").withPassword("test");
 
     @DynamicPropertySource

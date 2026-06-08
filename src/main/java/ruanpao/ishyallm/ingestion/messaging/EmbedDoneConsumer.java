@@ -1,6 +1,8 @@
 package ruanpao.ishyallm.ingestion.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -50,6 +52,7 @@ public class EmbedDoneConsumer {
         this(pgWriter, esWriter, null, bootstrapServers);
     }
 
+    @PostConstruct
     public void start() {
         if (running.compareAndSet(false, true)) {
             consumerThread = new Thread(this::run, "embed-done-consumer");
@@ -59,6 +62,7 @@ public class EmbedDoneConsumer {
         }
     }
 
+    @PreDestroy
     public void stop() {
         running.set(false);
         if (consumerThread != null) consumerThread.interrupt();
