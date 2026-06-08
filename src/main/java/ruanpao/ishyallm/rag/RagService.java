@@ -7,6 +7,7 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
@@ -18,25 +19,34 @@ import ruanpao.ishyallm.retrieval.VectorRepository;
 import java.util.List;
 
 @Service
-@ConditionalOnBean(StreamingChatModel.class)
+@ConditionalOnBean({StreamingChatModel.class, EmbeddingModel.class})
 public class RagService {
 
     private final QueryRewriteService queryRewrite;
     private final StreamingChatModel chatModel;
-    private final EmbeddingModel embeddingModel;
-    private final VectorRepository vectorRepo;
-    private final RrfService rrf;
+    private EmbeddingModel embeddingModel;
+    private VectorRepository vectorRepo;
+    private RrfService rrf;
     private ElasticsearchRepository esRepo;
 
     public RagService(QueryRewriteService queryRewrite,
-                      StreamingChatModel chatModel,
-                      EmbeddingModel embeddingModel,
-                      VectorRepository vectorRepo,
-                      RrfService rrf) {
+                      StreamingChatModel chatModel) {
         this.queryRewrite = queryRewrite;
         this.chatModel = chatModel;
+    }
+
+    @Autowired(required = false)
+    public void setEmbeddingModel(EmbeddingModel embeddingModel) {
         this.embeddingModel = embeddingModel;
+    }
+
+    @Autowired(required = false)
+    public void setVectorRepo(VectorRepository vectorRepo) {
         this.vectorRepo = vectorRepo;
+    }
+
+    @Autowired(required = false)
+    public void setRrf(RrfService rrf) {
         this.rrf = rrf;
     }
 
@@ -54,7 +64,6 @@ public class RagService {
                 var queryEmbedding = embeddingModel.embed(rewritten).content();
                 var queryVec = VectorUtils.toDoubleList(queryEmbedding.vectorAsList());
 
-                // 双路召回：PGVector 语义 + ES BM25
                 var vr = vectorRepo.searchByDepartment(queryVec, 20, department);
                 var er = esRepo != null ? esRepo.search(rewritten, 20) : List.<ElasticsearchRepository.SearchResult>of();
                 var ranked = rrf.merge(vr, er, 8);

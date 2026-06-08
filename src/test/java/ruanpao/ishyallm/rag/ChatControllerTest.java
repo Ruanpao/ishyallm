@@ -55,7 +55,7 @@ class ChatControllerTest {
     static class TestConfig {
         @Bean @Primary
         public RagService mockRagService() {
-            return new RagService(null, null, null, null, null) {
+            return new RagService(null, null) {
                 @Override
                 public Flux<String> ask(String query, String history, String department) {
                     return Flux.just("这是基于[1]和[2]的测试回答");

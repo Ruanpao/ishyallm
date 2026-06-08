@@ -17,7 +17,7 @@ class RagServiceTest {
     @Test
     void shouldReturnResponseWithReferences() {
         var mockLLM = stubLLM("这是基于[1][2]的医学回答");
-        var service = new RagService(rewrite, mockLLM, null, null, null);
+        var service = new RagService(rewrite, mockLLM);
 
         Flux<String> result = service.ask("高血压的定义是什么", null, "心内科");
 
@@ -32,7 +32,7 @@ class RagServiceTest {
     @Test
     void shouldRewriteQueryWithHistory() {
         var mockLLM = stubLLM("这是回答");
-        var service = new RagService(rewrite, mockLLM, null, null, null);
+        var service = new RagService(rewrite, mockLLM);
 
         Flux<String> result = service.ask("诊断标准是什么",
                 "用户：什么是高血压？\n助手：高血压是指动脉血压持续升高。\n用户：诊断标准是什么",
